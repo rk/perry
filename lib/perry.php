@@ -128,36 +128,139 @@ class Perry {
   // $routes[get|post|put|delete][string|pattern] = Closure
   private $routes = array();
   
-  private function registerRoute($verb, $pattern, $callback) {
+  private function register_route($verb, $pattern, Closure $callback) {
     if(empty($this->routes[$verb])) {
       $this->routes[$verb] = array();
     }
     $this->routes[$verb][$pattern] = $callback;
   }
   
-  public function get($pattern, $callback) {
-    $this->registerRoute('get', $pattern, $callback);
+  /**
+   * This registers a GET action with a static or regex pattern with Perry. Any matches will be
+   * passed to the closure passed as the second argument. The closure receives 2-3 parameters:
+   * the Response object it is called under, the Request, and an array of any regex matches.
+   * Currently supports method chaining.
+   *
+   * @param string $pattern 
+   * @param Closure $callback 
+   * @return Perry
+   * @author Robert Kosek
+   */
+  public function get($pattern, Closure $callback) {
+    $this->register_route('get', $pattern, $callback);
     return $this;
   }
 
-  public function put($pattern, $callback) {
-    $this->registerRoute('put', $pattern, $callback);
+  /**
+   * This registers a PUT action with a static or regex pattern similar to the GET verb.
+   *
+   * @see Perry::get()
+   * @param string $pattern 
+   * @param Closure $callback 
+   * @return Perry
+   * @author Robert Kosek
+   */
+  public function put($pattern, Closure $callback) {
+    $this->register_route('put', $pattern, $callback);
     return $this;
   }
 
-  public function post($pattern, $callback) {
-    $this->registerRoute('post', $pattern, $callback);
+  /**
+   * This registers a POST action with a static or regex pattern similar to the GET verb.
+   *
+   * @see Perry::get()
+   * @param string $pattern 
+   * @param Closure $callback 
+   * @return Perry
+   * @author Robert Kosek
+   */
+  public function post($pattern, Closure $callback) {
+    $this->register_route('post', $pattern, $callback);
     return $this;
   }
 
-  public function delete($pattern, $callback) {
-    $this->registerRoute('delete', $pattern, $callback);
+  /**
+   * This registers a DELETE action with a static or regex pattern similar to the GET verb.
+   *
+   * @see Perry::get()
+   * @param string $pattern 
+   * @param Closure $callback 
+   * @return Perry
+   * @author Robert Kosek
+   */
+  public function delete($pattern, Closure $callback) {
+    $this->register_route('delete', $pattern, $callback);
     return $this;
   }
   
-  private $response = array();
+  private $filters = array('before'=>array(), 'after'=>array());
   
-  public function handle($request) {
+  /**
+   * This registers a before filter that matches either a static or regex pattern, without care
+   * for the request method. As the name implies the filter is triggered BEFORE the request is
+   * passed to the Response.
+   *
+   * @see Perry::trigger_filters()
+   * @see Request::matches()
+   * @param string $pattern 
+   * @param Closure $callback 
+   * @return void
+   * @author Robert Kosek
+   */
+  public function before($pattern, Closure $callback) {
+    $this->filters['before'][$pattern] = $callback;
+  }
+  
+  /**
+   * This registers an after filter that matches either a static or regex pattern, without care
+   * for the request method. As the name implies the filter is triggered AFTER the request is
+   * passed to the Response.
+   *
+   * @see Perry::trigger_filters()
+   * @see Request::matches()
+   * @param string $pattern 
+   * @param Closure $callback 
+   * @return void
+   * @author Robert Kosek
+   */
+  public function after($pattern, Closure $callback) {
+    $this->filters['after'][$pattern] = $callback;
+  }
+  
+  /**
+   * This triggers all associated/matching filters for the given time, before or after, the
+   * Response execution.
+   *
+   * @see Perry::before()
+   * @see Perry::after()
+   * @see Request::matches()
+   * @param string $when 
+   * @param Request $request 
+   * @return void
+   * @author Robert Kosek
+   */
+  private function trigger_filters($when, Request $request) {
+    foreach($this->filters[$when] as $pattern => $callback) {
+      if($matches = $request->matches($pattern)) {
+        call_user_func(&$callback, $request, is_array($matches) ? $matches : null);
+      }
+    }
+  }
+  
+  private $response = null;
+  
+  /**
+   * This method handles a given request. It attempts to match a route to the URI, and if it
+   * fails to do so the response defaults to the Perry::not_found() method.
+   *
+   * @see Perry::get()
+   * @see Perry::trigger_filters()
+   * @see Request::matches()
+   * @param Request $request 
+   * @return void
+   * @author Robert Kosek
+   */
+  public function handle(Request $request) {
     $uri  = $request->uri;
     $verb = $request->method;
     
@@ -168,20 +271,25 @@ class Perry {
       $callback = &$this->routes[$verb][$uri];
     } else {
       foreach($this->routes[$verb] as $pattern => $func) {
-        if(preg_match($pattern, $uri, $matches)) {
+        if($request->matches($pattern, $matches)) {
           $callback = &$func;
-          $params[] = $matches;
+          $params[] = $matches ?: array();
           break;
         }
       }
     }
 
     $this->response = new Response($callback, $params);
-    
     $this->render();
   }
     
-  
+  /**
+   * Echoes the Response object as output.
+   *
+   * @see Response::__toString()
+   * @return void
+   * @author Robert Kosek
+   */
   private function render() {
     echo $this->response;
   }
@@ -212,7 +320,18 @@ class Perry {
     exit();
   }
   
-  public function not_found($request) {
+  /**
+   * Renders a 404 error page with basic information.
+   *
+   * TODO: Make this use Response::view() and be implemented as a Closure, so that it can be
+   * overridden by a project.
+   *
+   * @see perry_error()
+   * @param Request $request 
+   * @return void
+   * @author Robert Kosek
+   */
+  public function not_found(Request $request) {
     perry_error("404 Not Found", "<p>Perry is a great guy, but even he doesn't know what to do with a route like: <code>{$request->uri}</code></p>");
   }
 }
@@ -225,7 +344,7 @@ class Response {
   
   public function __construct(Closure $callback, Array $params) {
     $this->callback = $callback;
-    $this->params   = $params;
+    $this->params   = array_unshift($params, $this);
   }
   
   private function render() {
@@ -285,6 +404,13 @@ class Request {
 				$this->method = $_POST['_method'];
 			}
 		}
+	}
+	
+	public function matches($pattern, &$matches) {
+	  if(($this->uri == $pattern) || preg_match($pattern, $this->uri, &$matches)) {
+	    return true;
+	  }
+	  return false;
 	}
 }
 
