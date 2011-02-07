@@ -15,11 +15,6 @@
  **/
 
 /**
- * Define DocBlock
- **/
-
-
-/**
  * This is the universal "error" page for Perry apps. Pass it a title and a message,
  * and the function will output it and halt operation.
  *
@@ -101,8 +96,8 @@ MESSAGE;
 class Perry {
   public $errors = array();
   
-  // $routes[verb][pattern] = callback
-  public $routes = array();
+  // $routes[get|post|put|delete][string|pattern] = Closure
+  private $routes = array();
   
   private function registerRoute($verb, $pattern, $callback) {
     if(empty($this->routes[$verb])) {
@@ -137,27 +132,38 @@ class Perry {
     $uri  = $request->uri;
     $verb = $request->method;
     
+    $callback = array($this, 'not_found');
+    $params   = array($request);
+    
     if(isset($this->routes[$verb][$uri])) {
-      $this->response = new Response($this->routes[$verb][$uri], array($request, $this));
-      return $this;
+      $callback = &$this->routes[$verb][$uri];
     } else {
       foreach($this->routes[$verb] as $pattern => $func) {
         if(preg_match($pattern, $uri, $matches)) {
-          $this->response = new Response($func, array($matches, $request, $this));
-          return $this;
+          $callback = &$func;
+          $params[] = $matches;
+          break;
         }
       }
     }
 
-    $this->response = new Response(array($this, 'not_found'), array($request, $this));
-    return $this;
+    $this->response = new Response($callback, $params);
+    
+    $this->render();
   }
     
   
-  public function render() {
-    echo $this->response->render();
+  private function render() {
+    echo $this->response;
   }
   
+  /**
+   * Redirects from the present action to the $to address with an optional redirect code and
+   * immediately exits. Only supports 301 permanent, 302 temporary (no reason), and 307.
+   *
+   * @return void
+   * @author Robert Kosek
+   **/
   public function redirect($to, $code=302) {
     switch($code) {
       case 301:
@@ -186,14 +192,14 @@ class Response {
   private $callback = null;
   private $params   = null;
   
-  public function __construct($callback, $params) {
+  public $content_type = 'text/html';
+  
+  public function __construct(Closure $callback, Array $params) {
     $this->callback = $callback;
     $this->params   = $params;
   }
   
-  public function render() {
-    global $perry;
-    
+  private function render() {
     ob_start();
 
     $func = &$this->callback; // must be dereferenced before being called by call_user_func_array
@@ -203,6 +209,25 @@ class Response {
     ob_end_clean();
     
     return $result;
+  }
+  
+  public function view($template, Array $locals) {
+    ob_start();
+    
+    extract($locals);
+    
+    include PERRY_ROOT . "views/${template}.php"
+      or perry_error('Missing Template', "<p>The template &quot;${template}&quot; doesn't exist.</p>");
+    
+    $___result = ob_get_contents();
+    ob_end_clean();
+    
+    return $___result;
+  }
+  
+  public function __toString() {
+    header("Content-Type: {$this->content_type}");
+    echo $this->render();
   }
 }
 
@@ -234,4 +259,6 @@ class Request {
 	}
 }
 
-$perry = new Perry;
+$perry   = new Perry;
+$request = Request::getInstance();
+register_shutdown_function(array($perry, 'handle'), $request);
