@@ -63,7 +63,7 @@ function perry_error($title, $message) {
         background: -webkit-gradient(linear, left top, left bottom, color-stop(0%,#cedce7), color-stop(100%,#596a72)); /* webkit */
         filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#cedce7', endColorstr='#596a72',GradientType=0 ); /* ie */
       }
-      body { margin: 0 auto; width: 700px; padding: 25px 50px; background: white; background: rgba(255,255,255,0.8); }
+      body { -moz-box-sizing: border-box; -webkit-box-sizing: border-box; box-sizing: border-box; margin: 0 auto; width: 700px; padding: 25px 50px; background: white; background: rgba(255,255,255,0.8); }
       h1 { font-family: sans-serif; }
       p { font-size: 1.2em; line-height: 1.4; }
       img { margin-left: 1em; padding: 4px; border: 1px solid gray; }
@@ -268,19 +268,21 @@ class Perry {
     $params   = array($request);
     
     if(isset($this->routes[$verb][$uri])) {
-      $callback = &$this->routes[$verb][$uri];
+      $callback = $this->routes[$verb][$uri];
     } else {
       foreach($this->routes[$verb] as $pattern => $func) {
         if($request->matches($pattern, $matches)) {
-          $callback = &$func;
+          $callback = $func;
           $params[] = $matches ?: array();
           break;
         }
       }
     }
 
+    $this->trigger_filters('before', $request);
     $this->response = new Response($callback, $params);
     $this->render();
+    $this->trigger_filters('after', $request);
   }
     
   /**
@@ -331,7 +333,7 @@ class Perry {
    * @return void
    * @author Robert Kosek
    */
-  public function not_found(Request $request) {
+  public function not_found(Response $response, Request $request) {
     perry_error("404 Not Found", "<p>Perry is a great guy, but even he doesn't know what to do with a route like: <code>{$request->uri}</code></p>");
   }
 }
@@ -344,7 +346,8 @@ class Response {
   
   public function __construct(Closure $callback, Array $params) {
     $this->callback = $callback;
-    $this->params   = array_unshift($params, $this);
+    $this->params   = $params;
+    array_unshift($this->params, $this);
   }
   
   private function render() {
@@ -364,7 +367,7 @@ class Response {
     
     extract($locals);
     
-    include PERRY_ROOT . "views/${template}.php"
+    include PERRY_ROOT . "/views/${template}.php"
       or perry_error('Missing Template', "<p>The template &quot;${template}&quot; doesn't exist.</p>");
     
     $___result = ob_get_contents();
@@ -375,7 +378,7 @@ class Response {
   
   public function __toString() {
     header("Content-Type: {$this->content_type}");
-    echo $this->render();
+    return $this->render();
   }
 }
 
@@ -407,7 +410,7 @@ class Request {
 	}
 	
 	public function matches($pattern, &$matches) {
-	  if(($this->uri == $pattern) || preg_match($pattern, $this->uri, &$matches)) {
+	  if((strcmp($this->uri, $pattern) == 0) || ((int)preg_match($pattern, $this->uri, &$matches) == 1)) {
 	    return true;
 	  }
 	  return false;
