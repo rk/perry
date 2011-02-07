@@ -1,0 +1,19 @@
+<Files .*>
+  Order Deny,Allow
+  Deny From All
+</Files>
+
+# Taken from Kohana. I had dreadful trouble coming up with a workable solution of my own.
+<IfModule mod_rewrite.c>
+  #Options +FollowSymlinks
+  
+  RewriteEngine on
+  RewriteBase /~robert/perry/
+  
+  RewriteRule ^(?:lib|includes|views)\b.* index.php/$0 [L]
+  
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+
+  RewriteRule .* index.php/$0 [PT]
+</IfModule>
