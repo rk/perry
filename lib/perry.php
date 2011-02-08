@@ -37,47 +37,11 @@
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * @author Robert Kosek <robert.kosek@thewickedflea.com>
- * @version 0.1.1
+ * @version 0.2
  * @copyright Robert Kosek, 5 February, 2011
  * @license BSD License <license.txt>
  * @package Perry
  **/
-
-/**
- * This is the universal "error" page for Perry apps. Pass it a title and a message,
- * and the function will output it and halt operation.
- *
- * @author Robert Kosek
- * @copyright Robert Kosek, 5 February, 2011
- */
-function perry_error($title, $message) {
-  $content = <<<ERROR
-<html>
-  <head>
-    <title>Perry has encountered an error!</title>
-    <style type="text/css">
-      html, body { min-height: 100%; }
-      html {
-        background: #cedce7; /* old browsers */
-        background: -moz-linear-gradient(top, #cedce7 0%, #596a72 100%); /* firefox */
-        background: -webkit-gradient(linear, left top, left bottom, color-stop(0%,#cedce7), color-stop(100%,#596a72)); /* webkit */
-        filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#cedce7', endColorstr='#596a72',GradientType=0 ); /* ie */
-      }
-      body { -moz-box-sizing: border-box; -webkit-box-sizing: border-box; box-sizing: border-box; margin: 0 auto; width: 700px; padding: 25px 50px; background: white; background: rgba(255,255,255,0.8); }
-      h1 { font-family: sans-serif; }
-      p { font-size: 1.2em; line-height: 1.4; }
-      img { margin-left: 1em; padding: 4px; border: 1px solid gray; }
-    </style>
-  </head>
-  <body>
-    <img src="/~robert/perry/images/perry.jpeg" align="right">
-    <h1>{$title}</h1>
-    {$message}
-  </body>
-</html>
-ERROR;
-  die($content);
-}
 
 set_error_handler(function($severity, $message, $file, $line, $context) {
   global $perry;
@@ -96,7 +60,7 @@ set_error_handler(function($severity, $message, $file, $line, $context) {
   <em>Line:</em> {$line}
 </p>
 MESSAGE;
-      perry_error($title, $message);
+      $perry->error($title, $message);
       break;
     case E_WARNING:
     case E_COMPILE_WARNING:
@@ -315,7 +279,7 @@ class Perry {
         $response = '307 Temporary Redirect';
         break;
       default:
-        perry_error('Invalid Redirect Code', "<p>The code {$code} is not a valid redirect code, or has not been registered with Perry.</p>");
+        $this->error('Invalid Redirect Code', "<p>The code {$code} is not a valid redirect code, or has not been registered with Perry.</p>");
     }
     header('HTTP/1.1 '.$response);
     header('Location: '.$to);
@@ -334,8 +298,23 @@ class Perry {
    * @author Robert Kosek
    */
   public function not_found(Response $response, Request $request) {
-    perry_error("404 Not Found", "<p>Perry is a great guy, but even he doesn't know what to do with a route like: <code>{$request->uri}</code></p>");
+    $this->error("404 Not Found", "<p>Perry is a great guy, but even he doesn't know what to do with a route like: <code>{$request->uri}</code></p>");
   }
+
+	/**
+	 * This is the universal "error" page for Perry apps. Pass it a title and a message,
+	 * and the function will output it and halt operation.
+	 *
+	 * @param string $title
+	 * @param string $message
+	 * @author Robert Kosek
+	 */
+	public function error($title, $message) {
+		die(Response::view('perry-error', array(
+			'title'   => $title,
+			'message' => $message
+		)));
+	}
 }
 
 class Response {
@@ -363,17 +342,23 @@ class Response {
   }
   
   public static function view($template, Array $locals) {
-    ob_start();
-    
-    extract($locals);
-    
-    include PERRY_ROOT . "/views/${template}.php"
-      or perry_error('Missing Template', "<p>The template &quot;${template}&quot; doesn't exist.</p>");
-    
-    $___result = ob_get_contents();
-    ob_end_clean();
-    
-    return $___result;
+		global $perry;
+		
+		$file = PERRY_ROOT . "/views/${template}.php";
+
+		if(file_exists($file)) {
+	    ob_start();
+      extract($locals);
+
+	    include $file;
+
+	    $result = ob_get_contents();
+	    ob_end_clean();
+	
+			return $result;
+		} else {
+			$perry->error('Missing Template', "<p>The template &quot;${template}&quot; doesn't exist.</p>");
+		}
   }
   
   public function __toString() {
