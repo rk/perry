@@ -43,6 +43,24 @@
  * @package Perry
  **/
 
+/**
+ * Returns an array from $array with keys that match $keys only.
+ *
+ * @param Array $array 
+ * @param Array $keys 
+ * @return Array
+ * @author Robert Kosek
+ */
+function array_select_keys(Array $array, Array $keys) {
+	$result = array();
+	
+	foreach($keys as $key) {
+		$result[$key] = $array[$key];
+	}
+	
+	return $result;
+}
+
 set_error_handler(function($severity, $message, $file, $line, $context) {
   global $perry;
   
@@ -96,14 +114,33 @@ class Perry {
     if(empty($this->routes[$verb])) {
       $this->routes[$verb] = array();
     }
-    $this->routes[$verb][$pattern] = $callback;
+
+		$route = array('callback' => $callback);
+
+		// dynamic routes that sport named sections are now "compiled" into a regular expression
+		// automatically.
+		if(strpos('<', $pattern) !== false) {
+			// save a list of named keys in the route
+			preg_match_all('/\<([-_\w\d]+)\>/i', $path, $named_keys);
+			$route['keys'] = array_slice($named_keys, 1);
+			
+			// escape regex symbols, and make groups as optional non-capturing subpatterns
+			$pattern = str_replace(array('.', '(', ')'), array('\.', '(?:', ')?'), $pattern);
+			
+			// named matches from named URI components
+			$pattern = preg_replace('/\<([-_\w\d]+)\>/i', '(?P<$1>[-_\w\d])', $pattern);
+			
+			// % instead of the standard slashes to allow for slashes in the regex
+			$pattern = "%$pattern%i";
+		}
+
+    $this->routes[$verb][$pattern] = $route;
   }
   
   /**
-   * This registers a GET action with a static or regex pattern with Perry. Any matches will be
-   * passed to the closure passed as the second argument. The closure receives 2-3 parameters:
-   * the Response object it is called under, the Request, and an array of any regex matches.
-   * Currently supports method chaining.
+   * This takes a pattern of either static or dynamic routes and will save it to an array of
+	 * routes. Dynamic routes are compiled to a regular expression, support optional groups, and
+	 * have an explicit format of: "/static_match/<article_id>(/<action>)"
    *
    * @param string $pattern 
    * @param Closure $callback 
@@ -116,7 +153,7 @@ class Perry {
   }
 
   /**
-   * This registers a PUT action with a static or regex pattern similar to the GET verb.
+   * This registers a PUT action with a pattern similar to the GET verb.
    *
    * @see Perry::get()
    * @param string $pattern 
@@ -130,7 +167,7 @@ class Perry {
   }
 
   /**
-   * This registers a POST action with a static or regex pattern similar to the GET verb.
+   * This registers a POST action with a pattern similar to the GET verb.
    *
    * @see Perry::get()
    * @param string $pattern 
@@ -144,7 +181,7 @@ class Perry {
   }
 
   /**
-   * This registers a DELETE action with a static or regex pattern similar to the GET verb.
+   * This registers a DELETE action with a pattern similar to the GET verb.
    *
    * @see Perry::get()
    * @param string $pattern 
@@ -229,37 +266,28 @@ class Perry {
     $verb = $request->method;
     
     $callback = array($this, 'not_found');
-    $params   = array($request);
+    $params   = array();
     
     if(isset($this->routes[$verb][$uri])) {
-      $callback = $this->routes[$verb][$uri];
+      $callback = $this->routes[$verb][$uri]['callback'];
     } else {
-      foreach($this->routes[$verb] as $pattern => $func) {
-        if($request->matches($pattern, $matches)) {
-          $callback = $func;
-          $params[] = $matches ?: array();
+      foreach($this->routes[$verb] as $pattern => $route_data) {
+        if(($pattern[0] == '%') && ($request->matches($pattern, $matches))) {
+          $callback = $route_data['callback'];
+          $params = array_select_keys($matches, $route_data['keys']);
           break;
         }
       }
     }
 
+		$params = array_unshift($request); // prepend the request to the parameters
+
     $this->trigger_filters('before', $request);
     $this->response = new Response($callback, $params);
-    $this->render();
+    $this->response->execute();
     $this->trigger_filters('after', $request);
   }
     
-  /**
-   * Echoes the Response object as output.
-   *
-   * @see Response::__toString()
-   * @return void
-   * @author Robert Kosek
-   */
-  private function render() {
-    echo $this->response;
-  }
-  
   /**
    * Redirects from the present action to the $to address with an optional redirect code and
    * immediately exits. Only supports 301 permanent, 302 temporary (no reason), and 307.
@@ -321,49 +349,33 @@ class Response {
   private $callback = null;
   private $params   = null;
   
-  public $content_type = 'text/html';
-  
   public function __construct(Closure $callback, Array $params) {
     $this->callback = $callback;
     $this->params   = $params;
-    array_unshift($this->params, $this);
   }
   
-  private function render() {
-    ob_start();
-
-    $func = &$this->callback; // must be dereferenced before being called by call_user_func_array
+  public function execute() {
+    $func = &$this->callback; // must be dereferenced before being called
     call_user_func_array($func, $this->params);
-
-    $result = ob_get_contents();
-    ob_end_clean();
-    
-    return $result;
   }
   
   public static function view($template, Array $locals) {
-		global $perry;
-		
 		$file = PERRY_ROOT . "/views/${template}.php";
 
 		if(file_exists($file)) {
 	    ob_start();
       extract($locals);
 
-	    include $file;
+	    include $file; // include "" or die(""); appears to return null
 
 	    $result = ob_get_contents();
 	    ob_end_clean();
 	
 			return $result;
 		} else {
+			global $perry;
 			$perry->error('Missing Template', "<p>The template &quot;${template}&quot; doesn't exist.</p>");
 		}
-  }
-  
-  public function __toString() {
-    header("Content-Type: {$this->content_type}");
-    return $this->render();
   }
 }
 

@@ -7,7 +7,7 @@ define('PERRY_ROOT', dirname(realpath(__FILE__)));
 
 require 'lib/perry.php';
 
-$perry->get('/', function($response, $request) {
+$perry->get('/', function($request) {
   echo "<h1>Perry says, &quot;Hi there.&quot;</h1>";
   
   foreach($perry->errors as $error) {
