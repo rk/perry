@@ -19,3 +19,9 @@ $perry->get('/', function($request) {
 ERROR;
   }
 });
+
+$perry->get('/debug/<state>/<zip>/?', function($request, $state, $zip) {
+	echo "<h1>Perry Debug</h1>";
+	echo "<p><code>\$state = &quot;$state&quot;;</code></p>";
+	echo "<p><code>\$zip = &quot;$zip&quot;;</code></p>";
+});

@@ -44,18 +44,19 @@
  **/
 
 /**
- * Returns an array from $array with keys that match $keys only.
+ * Returns an array consisting of the values of the items in $keys, in the order given in
+ * $keys. Helps with captures being in order, etc.
  *
  * @param Array $array 
  * @param Array $keys 
  * @return Array
  * @author Robert Kosek
  */
-function array_select_keys(Array $array, Array $keys) {
+function array_select_values_of(Array $array, Array $keys) {
 	$result = array();
 	
 	foreach($keys as $key) {
-		$result[$key] = $array[$key];
+		$result[] = array_shift($array[$key]);
 	}
 	
 	return $result;
@@ -119,22 +120,22 @@ class Perry {
 
 		// dynamic routes that sport named sections are now "compiled" into a regular expression
 		// automatically.
-		if(strpos('<', $pattern) !== false) {
+		if(strpos($pattern, '<')) {
 			// save a list of named keys in the route
-			preg_match_all('/\<([-_\w\d]+)\>/i', $path, $named_keys);
-			$route['keys'] = array_slice($named_keys, 1);
+			preg_match_all('/\<([-_\w\d]+)\>/i', $pattern, $named_keys);
+			$route['keys'] = $named_keys[1];
 			
 			// escape regex symbols, and make groups as optional non-capturing subpatterns
-			$pattern = str_replace(array('.', '(', ')'), array('\.', '(?:', ')?'), $pattern);
+			$regex = str_replace(array('.', '(', ')'), array('\.', '(?:', ')?'), $pattern);
 			
 			// named matches from named URI components
-			$pattern = preg_replace('/\<([-_\w\d]+)\>/i', '(?P<$1>[-_\w\d])', $pattern);
+			$regex = preg_replace('/\<([-_\w\d]+)\>/i', '(?P<${1}>[-_\w\d]+)', $regex);
 			
 			// % instead of the standard slashes to allow for slashes in the regex
-			$pattern = "%$pattern%i";
+			$this->routes[$verb]["%${regex}%i"] = $route;
+		} else {
+	    $this->routes[$verb][$pattern] = $route;
 		}
-
-    $this->routes[$verb][$pattern] = $route;
   }
   
   /**
@@ -273,14 +274,16 @@ class Perry {
     } else {
       foreach($this->routes[$verb] as $pattern => $route_data) {
         if(($pattern[0] == '%') && ($request->matches($pattern, $matches))) {
+					$data = array_select_values_of($matches, $route_data['keys']);
           $callback = $route_data['callback'];
-          $params = array_select_keys($matches, $route_data['keys']);
+					$request->params = &$data;
+          $params = &$data;
           break;
         }
       }
     }
 
-		$params = array_unshift($request); // prepend the request to the parameters
+		array_unshift($params, $request); // prepend the request to the parameters
 
     $this->trigger_filters('before', $request);
     $this->response = new Response($callback, $params);
@@ -325,7 +328,7 @@ class Perry {
    * @return void
    * @author Robert Kosek
    */
-  public function not_found(Response $response, Request $request) {
+  public function not_found(Request $request) {
     $this->error("404 Not Found", "<p>Perry is a great guy, but even he doesn't know what to do with a route like: <code>{$request->uri}</code></p>");
   }
 
@@ -407,7 +410,7 @@ class Request {
 	}
 	
 	public function matches($pattern, &$matches) {
-	  if((strcmp($this->uri, $pattern) == 0) || ((int)preg_match($pattern, $this->uri, &$matches) == 1)) {
+	  if((strcmp($this->uri, $pattern) == 0) || ((int)preg_match_all($pattern, $this->uri, &$matches) == 1)) {
 	    return true;
 	  }
 	  return false;
